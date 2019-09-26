@@ -47,12 +47,14 @@ class Router:
     updates = None
     relations = None
     sockets = None
+    forward_table = None
 
     def __init__(self, networks):
         self.routes = {}
         self.updates = {}
         self.relations = {}
         self.sockets = {}
+        self.forward_table = {}
         for relationship in networks:
             network, relation = relationship.split("-")
             if DEBUG: 
@@ -168,6 +170,13 @@ class Router:
                         if self.sockets[sock] == conn:
                             srcif = sock
                     msg = json.loads(k)
+                    msg_type = msg[type]
+                    if msg_type == "update":
+                        self.update(srcif,msg)
+                    elif msg_type == "data":
+                        self.forward(srcif,msg)
+                    elif msg_type == "dump":
+                        self.dump(msg)
                     print(msg)
                     if not self.handle_packet(srcif, msg):
                         self.send_error(conn, msg)
