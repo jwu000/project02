@@ -193,7 +193,7 @@ class Router:
         return True
 
     def dump(self, packet):
-        """	handles dump table requests	"""
+        """ handles dump table requests """
         # TODO
         table_msg = {}
         table_msg["src"] = packet["dst"]
@@ -207,8 +207,8 @@ class Router:
             entry["peer"] = self.forward_table[dest]["forward_to"]
             table_list.append(entry)
         table_msg["msg"] = table_list
-
-        print(table_msg)
+        
+        self.forward(table_msg["dst"], json.dumps(table_msg));
 
 
     def handle_packet(self, srcif, packet):
