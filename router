@@ -124,19 +124,33 @@ class Router:
     def forward(self, srcif, packet):
         """	Forward a data packet	"""
         # TODO
-        packet_dest = self.convertIpToBinary(packet["dst"])
+        packet_dest = packet["dst"]
         for entry in self.forward_table:
-            entry_netmask = self.convertIpToBinary(self.forward_table[entry]["final_dest_netmask"])
-            in_neighbor_network = ((packet_dest & entry_netmask) == self.convertIpToBinary(entry))
+            entry_netmask = self.forward_table[entry]["final_dest_netmask"]
+            print("first thing " + self.bitwise_and(packet_dest, entry_netmask))
+            print("second thing " + self.convertIpToBinary(entry))
+            in_neighbor_network = (self.bitwise_and(packet_dest, entry_netmask) == self.convertIpToBinary(entry))
             if in_neighbor_network:
-                self.sockets[self.forward_table[entry]["forward_to"]].send(packet.encode())
+                print("sending data on")
+                self.sockets[self.forward_table[entry]["forward_to"]].send(json.dumps(packet))
                 return
         
+    def bitwise_and(self, ip_address_1, ip_address_2):
+      list_of_numbers_1 = ip_address_1.split(".")
+      list_of_numbers_2 = ip_address_2.split(".")
+      list_of_binary_1 = ''.join(map(lambda num: '{0:08b}'.format(int(num)), list_of_numbers_1))
+      list_of_binary_2 = ''.join(map(lambda num: '{0:08b}'.format(int(num)), list_of_numbers_2))
+      final_bitwise = ''
+      
+      for x in range(len(list_of_binary_1)):
+        num_binary_1 = int(list_of_binary_1[x])
+        num_binary_2 = int(list_of_binary_2[x])
+        final_bitwise = final_bitwise + str(num_binary_1 & num_binary_2)
+      return final_bitwise
 
     def convertIpToBinary(self, ip_address):
         list_of_numbers = ip_address.split(".")
         list_of_binary = map(lambda num: '{0:08b}'.format(int(num)),list_of_numbers)
-        print(list_of_binary)
         return ''.join(list_of_binary)
 
 
@@ -157,7 +171,7 @@ class Router:
         route_info["route_selforigin"] = packet_msg["selfOrigin"]
         route_info["ASPath"] = packet_msg["ASPath"]
         route_info["origin"] = packet_msg["origin"]
-        self.forward_table["final_dest_ip"] = route_info
+        self.forward_table[final_dest_ip] = route_info
         #todo send to others
         for sock in self.sockets:
             print("socket neigh is " + str(sock))
