@@ -124,7 +124,21 @@ class Router:
     def forward(self, srcif, packet):
         """	Forward a data packet	"""
         # TODO
-        return False
+        packet_dest = self.convertIpToBinary(packet["dst"])
+        for entry in self.forward_table:
+            entry_netmask = self.convertIpToBinary(self.forward_table[entry]["final_dest_netmask"])
+            in_neighbor_network = ((packet_dest & entry_netmask) == self.convertIpToBinary(entry))
+            if in_neighbor_network:
+                self.sockets[self.forward_table[entry]["forward_to"]].send(packet.encode())
+                return
+        
+
+    def convertIpToBinary(self, ip_address):
+        list_of_numbers = ip_address.split(".")
+        list_of_binary = map(lambda num: '{0:08b}'.format(int(num)),list_of_numbers)
+        print(list_of_binary)
+        return ''.join(list_of_binary)
+
 
     def coalesce(self):
         """	coalesce any routes that are right next to each other	"""
@@ -152,6 +166,8 @@ class Router:
             else:
                 packet["src"] = packet["dst"]
                 packet["dst"] = sock
+                print("sending")
+                print( packet)
                 socket = self.sockets[sock]
                 socket.send(json.dumps(packet).encode("ascii"))
 
@@ -177,7 +193,9 @@ class Router:
             entry["peer"] = self.forward_table[dest]["forward_to"]
             table_list.append(entry)
         table_msg["msg"] = table_list
-        return True
+
+        print(table_msg)
+
 
     def handle_packet(self, srcif, packet):
         """	dispatches a packet """
