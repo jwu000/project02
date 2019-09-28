@@ -3,7 +3,7 @@
 import argparse, socket, time, json, select, struct, math
 
 #DEBUG = True
-DEBUG = True
+DEBUG = False
 
 parser = argparse.ArgumentParser(description='route packets')
 parser.add_argument('networks', metavar='networks', type=str, nargs='+', help="networks")
@@ -127,11 +127,8 @@ class Router:
         packet_dest = packet["dst"]
         for entry in self.forward_table:
             entry_netmask = self.forward_table[entry]["final_dest_netmask"]
-            print("first thing " + self.bitwise_and(packet_dest, entry_netmask))
-            print("second thing " + self.convertIpToBinary(entry))
             in_neighbor_network = (self.bitwise_and(packet_dest, entry_netmask) == self.convertIpToBinary(entry))
             if in_neighbor_network:
-                print("sending data on")
                 self.sockets[self.forward_table[entry]["forward_to"]].send(json.dumps(packet))
                 return
         
@@ -175,15 +172,11 @@ class Router:
         #todo send to others
         router = packet["dst"]
         for sock in self.sockets:
-            print("socket neigh is " + str(sock))
             if sock == srcif:
                 continue
             else:
                 packet["src"] = router
                 packet["dst"] = sock
-                print("sending to " + str(sock))
-                print("below is me printing packet")
-                print( packet)
                 socket = self.sockets[sock]
                 socket.send(json.dumps(packet).encode())
 
@@ -210,7 +203,6 @@ class Router:
             table_list.append(entry)
         table_msg["msg"] = table_list
 
-        print(table_msg)
 
         self.sockets[table_msg["dst"]].send(json.dumps(table_msg))
         
@@ -244,16 +236,10 @@ class Router:
                     msg_type = msg["type"]
 
                     if msg_type == "update":
-                        print("me printing msg below for update")
-                        print(msg)
                         self.update(srcif,msg)
                     elif msg_type == "data":
-                        print("me printing msg below for data")
-                        print(msg)
                         self.forward(srcif,msg)
                     elif msg_type == "dump":
-                        print("me printing msg below for dump")
-                        print(msg)
                         self.dump(msg)
 
                     if not self.handle_packet(srcif, msg):
