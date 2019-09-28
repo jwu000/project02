@@ -173,17 +173,19 @@ class Router:
         route_info["origin"] = packet_msg["origin"]
         self.forward_table[final_dest_ip] = route_info
         #todo send to others
+        router = packet["dst"]
         for sock in self.sockets:
             print("socket neigh is " + str(sock))
             if sock == srcif:
-                pass
+                continue
             else:
-                packet["src"] = packet["dst"]
+                packet["src"] = router
                 packet["dst"] = sock
-                print("sending")
+                print("sending to " + str(sock))
+                print("below is me printing packet")
                 print( packet)
                 socket = self.sockets[sock]
-                socket.send(json.dumps(packet).encode("ascii"))
+                socket.send(json.dumps(packet).encode())
 
         return False
     
@@ -240,13 +242,20 @@ class Router:
                             srcif = sock
                     msg = json.loads(k)
                     msg_type = msg["type"]
+
                     if msg_type == "update":
+                        print("me printing msg below for update")
+                        print(msg)
                         self.update(srcif,msg)
                     elif msg_type == "data":
+                        print("me printing msg below for data")
+                        print(msg)
                         self.forward(srcif,msg)
                     elif msg_type == "dump":
+                        print("me printing msg below for dump")
+                        print(msg)
                         self.dump(msg)
-                    print(msg)
+
                     if not self.handle_packet(srcif, msg):
                         self.send_error(conn, msg)
                 else:
