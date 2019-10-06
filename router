@@ -1,12 +1,19 @@
 #!/usr/bin/env python
 
-import argparse, socket, time, json, select, struct, math
+import argparse
+import socket
+import time
+import json
+import select
+import struct
+import math
 
 #DEBUG = True
 DEBUG = False
 
 parser = argparse.ArgumentParser(description='route packets')
-parser.add_argument('networks', metavar='networks', type=str, nargs='+', help="networks")
+parser.add_argument('networks', metavar='networks',
+                    type=str, nargs='+', help="networks")
 args = parser.parse_args()
 
 ##########################################################################################
@@ -57,9 +64,10 @@ class Router:
         self.forward_table = {}
         for relationship in networks:
             network, relation = relationship.split("-")
-            if DEBUG: 
+            if DEBUG:
                 print("Starting socket for", network, relation)
-            self.sockets[network] = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            self.sockets[network] = socket.socket(
+                socket.AF_UNIX, socket.SOCK_SEQPACKET)
             self.sockets[network].setblocking(0)
             self.sockets[network].connect(network)
             self.relations[network] = relation
@@ -76,13 +84,13 @@ class Router:
         # TODO
         outroutes = []
         return outroutes
-            
+
     def get_highest_preference(self, routes):
         """ select the route with the shortest AS Path """
         # TODO
         outroutes = []
         return outroutes
-         
+
     def get_self_origin(self, routes):
         """ select self originating routes """
         # TODO
@@ -128,88 +136,110 @@ class Router:
         # Use priority rules to find the one place we should send to
         # In the case that we don't know the location of it, send it back
 
-        valid_locations = []
+        valid_path = []
         packet_dest = packet["dst"]
-        for entry in self.forward_table:
-            entry_netmask = self.forward_table[entry]["final_dest_netmask"]
-            in_neighbor_network = (self.bitwise_and(packet_dest, entry_netmask) == self.convertIpToBinary(entry))
+
+        # For every destination
+        for destination in self.forward_table:
+            # Find the submask and validate it is a member of the network
+            entry_netmask = self.forward_table[destination][0]["final_dest_netmask"]
+            in_neighbor_network = (self.bitwise_and(
+                packet_dest, entry_netmask) == self.convertIpToBinary(destination))
+            # If it is a valid member, it is a valid path
             if in_neighbor_network:
-                valid_locations.append(entry)
-                
-        print(valid_locations)
-        print("-----------------")
+                valid_path = self.forward_table[destination]
 
-        # No matches, we don't know this place so send it back
-        # TODO: This isn't done, just rough draft, some error happens
-        if (len(valid_locations) == 0):
-            packet["type"] = "no route"
-            packet['dst'] = packet['src']
-            packet["msg"] = {}
-            self.forward(srcif, packet)
-            return
+        # # No matches, we don't know this place so send it back
+        # if (len(valid_path) == 0):
+        #     packet["type"] = "no route"
+        #     dst = packet['dst']
+        #     packet['dst'] = packet['src']
+        #     packet['src'] = dst
+        #     packet["msg"] = {}
+        #     self.forward(srcif, packet)
+        #     return
 
-        best_location = self.find_priority(valid_locations)
-        self.sockets[self.forward_table[best_location]["forward_to"]].send(json.dumps(packet).encode())
+        best_location = valid_path[0] if (
+            len(valid_path) == 1) else self.find_priority(valid_path)
+        self.sockets[best_location["forward_to"]].send(
+            json.dumps(packet).encode())
         return
-        
+
     def find_priority(self, valid_locations):
-        #TODO longest prefix match -> level 5 
+        # TODO longest prefix match -> level 5
         # highest localpref
         # SelfOrign = true
         # shotest ASPath
         # Best origin IGP>EGP>UNK
         # Lowest IP
-        best_location = valid_locations.pop(0)
-        best_location_info = self.forward_table[best_location]
+
+        best_location = valid_locations[0]
         for entry in valid_locations:
-            current_entry = self.forward_table[entry]
-            if best_location_info["localpref"] < current_entry["localpref"]:
-                best_location = entry
+            if best_location["localpref"] > entry["localpref"]:
                 continue
-            elif not best_location_info["route_selforigin"] and current_entry["route_selforigin"]:
+            elif best_location["localpref"] == entry["localpref"]:
+                if best_location["route_selforigin"] and not entry["route_selforigin"]:
+                    continue
+                elif (best_location["route_selforigin"] == entry["route_selforigin"]):
+                    # compare next
+                    if len(best_location["ASPath"]) < len(entry["ASPath"]):
+                        continue
+                    elif len(entry["ASPath"]) == len(best_location["ASPath"]):
+                        # compare next
+                        if self.origin1_priority(best_location["origin"], entry["origin"]) > 0:
+                            continue
+                        elif self.origin1_priority(best_location["origin"], entry["origin"]) == 0:
+                            #compare next
+                            if self.lowest_ip(best_location, entry):
+                                continue
+                            else:
+                                # Not lowest ip
+                                best_location = entry
+                        else:
+                            best_location = entry
+                    else:
+                        # other length is shorter
+                        best_location = entry
+                else:
+                    # take new one
+                    best_location = entry
+            else:
+                # best so far is less than new entry
                 best_location = entry
-                continue
-            elif len(current_entry["ASPath"]) < len(best_location_info["ASPath"]):
-                best_location = entry
-                continue
-            elif origin1_priority(best_location_info["origin"], current_entry["origin"]) < 0:
-                best_location = entry
-                continue
-            elif  lowest_ip(best_location, entry):
-                best_location = entry
-                continue
+
         return best_location
 
     # neg = lower priorty, 0 = same, pos is higher
     def origin1_priority(self, origin1, origin2):
         values = {"IGP": 3, "EGP": 2, "UNK": 1}
-        return values(origin1) - values(origin2)
-    
+        return values[origin1] - values[origin2]
+
     # Returns if the second ip is lower than the first
     def lowest_ip(self, ip1, ip2):
-        first = ip1.split(".").join("")
-        second = ip2.split(".").join("")
-        return second < first
+        first = "".join(ip1["forward_to"].split("."))
+        second = "".join(ip2["forward_to"].split("."))
+        return first < second
 
-        
     def bitwise_and(self, ip_address_1, ip_address_2):
-      list_of_numbers_1 = ip_address_1.split(".")
-      list_of_numbers_2 = ip_address_2.split(".")
-      list_of_binary_1 = ''.join(map(lambda num: '{0:08b}'.format(int(num)), list_of_numbers_1))
-      list_of_binary_2 = ''.join(map(lambda num: '{0:08b}'.format(int(num)), list_of_numbers_2))
-      final_bitwise = ''
-      
-      for x in range(len(list_of_binary_1)):
-        num_binary_1 = int(list_of_binary_1[x])
-        num_binary_2 = int(list_of_binary_2[x])
-        final_bitwise = final_bitwise + str(num_binary_1 & num_binary_2)
-      return final_bitwise
+        list_of_numbers_1 = ip_address_1.split(".")
+        list_of_numbers_2 = ip_address_2.split(".")
+        list_of_binary_1 = ''.join(
+            map(lambda num: '{0:08b}'.format(int(num)), list_of_numbers_1))
+        list_of_binary_2 = ''.join(
+            map(lambda num: '{0:08b}'.format(int(num)), list_of_numbers_2))
+        final_bitwise = ''
+
+        for x in range(len(list_of_binary_1)):
+            num_binary_1 = int(list_of_binary_1[x])
+            num_binary_2 = int(list_of_binary_2[x])
+            final_bitwise = final_bitwise + str(num_binary_1 & num_binary_2)
+        return final_bitwise
 
     def convertIpToBinary(self, ip_address):
         list_of_numbers = ip_address.split(".")
-        list_of_binary = map(lambda num: '{0:08b}'.format(int(num)),list_of_numbers)
+        list_of_binary = map(
+            lambda num: '{0:08b}'.format(int(num)), list_of_numbers)
         return ''.join(list_of_binary)
-
 
     def coalesce(self):
         """	coalesce any routes that are right next to each other	"""
@@ -218,7 +248,6 @@ class Router:
 
     def update(self, srcif, packet):
         """	handle update packets	"""
-        # TODO 
         packet_msg = packet["msg"]
         final_dest_ip = packet_msg["network"]
         route_info = {}
@@ -228,20 +257,21 @@ class Router:
         route_info["route_selforigin"] = packet_msg["selfOrigin"]
         route_info["ASPath"] = packet_msg["ASPath"]
         route_info["origin"] = packet_msg["origin"]
-        self.forward_table[final_dest_ip] = route_info
-        #todo send to others
+
+        # Forwarding table is of type Destination: array of Route information
+        if final_dest_ip not in self.forward_table:
+            self.forward_table[final_dest_ip] = []
+        self.forward_table[final_dest_ip] = self.forward_table[final_dest_ip] + [route_info]
         router = packet["dst"]
         for sock in self.sockets:
-            if sock == srcif:
-                continue
-            else:
+            if sock != srcif:
                 packet["src"] = router
                 packet["dst"] = sock
                 socket = self.sockets[sock]
                 socket.send(json.dumps(packet).encode())
 
         return False
-    
+
     def revoke(self, packet):
         """	handle revoke packets	"""
         # TODO
@@ -249,25 +279,21 @@ class Router:
 
     def dump(self, packet):
         """ handles dump table requests """
-        # TODO
         table_msg = {}
         table_msg["src"] = packet["dst"]
         table_msg["dst"] = packet["src"]
         table_msg["type"] = "table"
         table_list = []
         for dest in self.forward_table:
-            entry = {}
-            entry["network"] = dest
-            entry["netmask"] = self.forward_table[dest]["final_dest_netmask"]
-            entry["peer"] = self.forward_table[dest]["forward_to"]
-            table_list.append(entry)
+            for route in self.forward_table[dest]:
+                entry = {}
+                entry["network"] = dest
+                entry["netmask"] = route["final_dest_netmask"]
+                entry["peer"] = route["forward_to"]
+                table_list.append(entry)
         table_msg["msg"] = table_list
 
-
         self.sockets[table_msg["dst"]].send(json.dumps(table_msg))
-        
-       
-
 
     def handle_packet(self, srcif, packet):
         """	dispatches a packet """
@@ -296,9 +322,9 @@ class Router:
                     msg_type = msg["type"]
 
                     if msg_type == "update":
-                        self.update(srcif,msg)
+                        self.update(srcif, msg)
                     elif msg_type == "data":
-                        self.forward(srcif,msg)
+                        self.forward(srcif, msg)
                     elif msg_type == "dump":
                         self.dump(msg)
 
@@ -307,6 +333,7 @@ class Router:
                 else:
                     return
         return
+
 
 if __name__ == "__main__":
     router = Router(args.networks)
