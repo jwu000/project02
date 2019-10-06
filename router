@@ -135,6 +135,9 @@ class Router:
             in_neighbor_network = (self.bitwise_and(packet_dest, entry_netmask) == self.convertIpToBinary(entry))
             if in_neighbor_network:
                 valid_locations.append(entry)
+                
+        print(valid_locations)
+        print("-----------------")
 
         # No matches, we don't know this place so send it back
         # TODO: This isn't done, just rough draft, some error happens
@@ -146,13 +149,13 @@ class Router:
             return
 
         best_location = self.find_priority(valid_locations)
-        self.sockets[self.forward_table[best_location]["forward_to"]].send(json.dumps(packet))
+        self.sockets[self.forward_table[best_location]["forward_to"]].send(json.dumps(packet).encode())
         return
         
     def find_priority(self, valid_locations):
         #TODO longest prefix match -> level 5 
-        #highest localpref
-        #SelfOrign = true
+        # highest localpref
+        # SelfOrign = true
         # shotest ASPath
         # Best origin IGP>EGP>UNK
         # Lowest IP
@@ -175,7 +178,6 @@ class Router:
             elif  lowest_ip(best_location, entry):
                 best_location = entry
                 continue
-        print(best_location)
         return best_location
 
     # neg = lower priorty, 0 = same, pos is higher
