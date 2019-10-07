@@ -274,8 +274,24 @@ class Router:
 
     def revoke(self, packet):
         """	handle revoke packets	"""
-        # TODO
-        return True
+        # Array of networks/netmask
+        msg = packet["msg"]
+        src = packet["src"]
+        dst = packet["dst"]
+
+        for entry in msg:
+            network = entry["network"]
+            if network in self.forward_table:
+                del self.forward_table[network]
+                router = packet["dst"]
+                for sock in self.sockets:
+                    if sock != src:
+                        packet["src"] = router
+                        packet["dst"] = sock
+                        socket = self.sockets[sock]
+                        socket.send(json.dumps(packet).encode())
+        
+        return False
 
     def dump(self, packet):
         """ handles dump table requests """
@@ -327,7 +343,8 @@ class Router:
                         self.forward(srcif, msg)
                     elif msg_type == "dump":
                         self.dump(msg)
-
+                    elif msg_type == "revoke":
+                        self.revoke(msg)
                     if not self.handle_packet(srcif, msg):
                         self.send_error(conn, msg)
                 else:
