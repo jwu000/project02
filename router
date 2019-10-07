@@ -62,6 +62,7 @@ class Router:
         self.relations = {}
         self.sockets = {}
         self.forward_table = {}
+        self.revokes = {}
         for relationship in networks:
             network, relation = relationship.split("-")
             if DEBUG:
@@ -160,10 +161,8 @@ class Router:
             self.forward(srcif, packet)
             return
 
-        best_location = valid_path[0] if (
-            len(valid_path) == 1) else self.find_priority(valid_path)
-        self.sockets[best_location["forward_to"]].send(
-            json.dumps(packet).encode())
+        best_location = self.find_priority(valid_path)
+        self.sockets[best_location["forward_to"]].send(json.dumps(packet).encode())
         return
 
     def find_priority(self, valid_locations):
