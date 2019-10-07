@@ -150,14 +150,15 @@ class Router:
                 valid_path = self.forward_table[destination]
 
         # # No matches, we don't know this place so send it back
-        # if (len(valid_path) == 0):
-        #     packet["type"] = "no route"
-        #     dst = packet['dst']
-        #     packet['dst'] = packet['src']
-        #     packet['src'] = dst
-        #     packet["msg"] = {}
-        #     self.forward(srcif, packet)
-        #     return
+        if (len(valid_path) == 0):
+            packet["type"] = "no route"
+            packet["dst"] = packet["src"]
+            packet["msg"] = {}
+            src = srcif.split(".")
+            src[-1] = str(int(src[-1]) -1)
+            packet["src"] = ".".join(src)
+            self.forward(srcif, packet)
+            return
 
         best_location = valid_path[0] if (
             len(valid_path) == 1) else self.find_priority(valid_path)
