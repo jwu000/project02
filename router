@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+#check
 import argparse
 import socket
 import time
@@ -160,7 +160,11 @@ class Router:
             packet["src"] = ".".join(src)
             self.forward(srcif, packet)
             return
-
+       
+        print("=======================")
+        print("Valid paths")
+        print(valid_path)
+        print("========================")
         best_location = self.find_priority(valid_path)
         self.sockets[best_location["forward_to"]].send(json.dumps(packet).encode())
         return
@@ -281,17 +285,27 @@ class Router:
 
         for entry in msg:
             network = entry["network"]
-            if network in self.forward_table:
+            if len(self.forward_table[network]) == 1:
                 del self.forward_table[network]
-                router = packet["dst"]
-                for sock in self.sockets:
-                    if sock != src:
-                        packet["src"] = router
-                        packet["dst"] = sock
-                        socket = self.sockets[sock]
-                        socket.send(json.dumps(packet).encode())
+            else:
+                self.forward_table[network] = self.delete_entries_going_to_ip(self.forward_table[network], src)
+        router = packet["dst"]
+        for sock in self.sockets:
+            if sock != src:
+                packet["src"] = router
+                packet["dst"] = sock
+                socket = self.sockets[sock]
+                socket.send(json.dumps(packet).encode())
         
         return False
+
+    def delete_entries_going_to_ip(self,routes, ip_to_remove):
+        newEntry = []
+        for route in routes:
+            route_going_to_ip = route["forward_to"]
+            if route_going_to_ip != ip_to_remove:
+                newEntry.append(route)
+        return newEntry
 
     def dump(self, packet):
         """ handles dump table requests """
@@ -336,7 +350,7 @@ class Router:
                             srcif = sock
                     msg = json.loads(k)
                     msg_type = msg["type"]
-
+                    print(msg)
                     if msg_type == "update":
                         self.update(srcif, msg)
                     elif msg_type == "data":
