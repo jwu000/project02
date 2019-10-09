@@ -106,11 +106,12 @@ class Router:
         max_so_far = -1
         # Find the greatest
         for route in routes:
-            if route["localpref"] > max_so_far:
-                max_so_far = route["localpref"]
+            #self.debug_helper(int(route["localpref"]), "What is localpref")
+            if int(route["localpref"]) > max_so_far:
+                max_so_far = int(route["localpref"])
         # If it is greatest, take it
         for route in routes:
-            if route["localpref"] == max_so_far:
+            if int(route["localpref"]) == max_so_far:
                 outroutes = outroutes + [route]
         return outroutes
 
@@ -118,7 +119,11 @@ class Router:
         """ select self originating routes """
         outroutes = []
         for route in routes:
-            if route["route_selforigin"] == True:
+            #print("==================")
+            #print("self origin is" + route["route_selforigin"])
+            #print("result is " + str(bool(route["route_selforigin"].encode('utf-8')) == True))
+            #print("========end==========")
+            if route["route_selforigin"].encode('utf-8') == "True":
                 outroutes = outroutes + [route]
 
         # If this is empty, there were no trues, so all are false
@@ -131,15 +136,15 @@ class Router:
         """ select origin routes: EGP > IGP > UNK """
         outroutes = []
         for route in routes:
-            if route["origin"] == 'EGP':
+            if route["origin"].encode('utf-8') == 'IGP':
                 outroutes = outroutes + [route]
         if len(outroutes) == 0:
             for route in routes:
-                if route["origin"] == 'IGP':
+                if route["origin"].encode('utf-8') == 'EGP':
                     outroutes = outroutes + [route]
         if len(outroutes) == 0:
             for route in routes:
-                if route["origin"] == 'UNK':
+                if route["origin"].encode('utf-8') == 'UNK':
                     outroutes = outroutes + [route]
         return outroutes
 
@@ -195,16 +200,19 @@ class Router:
         return outroutes
 
     def get_route(self, srcif, valid_paths):
+        #print(valid_paths)
         """	Select the best route for a given address	"""
         peer = None
         # Rules go here
         if len(valid_paths) > 0:
             # 1. Highest Preference
             valid_paths = self.get_highest_preference(valid_paths)
+            #self.debug_helper(valid_paths,"after highest localpref")
             #print("Pref")
             #print(valid_paths)
             # 2. Self Origin
             valid_paths = self.get_self_origin(valid_paths)
+            #self.debug_helper(valid_paths,"path after selforigin")
             #print("Self")
             #print(valid_paths)
             # 3. Shortest ASPath
