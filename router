@@ -74,6 +74,11 @@ class Router:
             self.relations[network] = relation
         return
 
+    def debug_helper(self, message, message_title):
+        print("---- START " + message_title + "----")
+        print(message)
+        print("---- FINISH " + message_title + " ----")
+
     def lookup_routes(self, daddr):
         """ Lookup all valid routes for an address """
         # TODO
@@ -141,6 +146,18 @@ class Router:
     def filter_relationships(self, srcif, routes):
         """ Don't allow Peer->Peer, Peer->Prov, or Prov->Peer forwards """
         outroutes = []
+        #self.debug_helper(routes, "routes")
+        source_type = self.relations[srcif]
+        for route in routes:
+            forward_to = self.relations[route["forward_to"]]
+            # if ((self.relations[srcif] == 'peer' or self.relations[srcif] == 'prov') and 
+            # (self.relations[forward_to] == 'peer' or self.relations[forward_to] == 'prov')):
+            #     continue
+            #self.debug_helper(forward_to, "forward_to")
+            #self.debug_helper(source_type, "source_type")
+            if source_type == 'cust' or forward_to == 'cust':
+                outroutes = outroutes + [route]
+        #self.debug_helper(outroutes, "outroutes")
         return outroutes
 
     # def get_route(self, srcif, daddr):
@@ -177,7 +194,7 @@ class Router:
                 outroutes = outroutes + [route]
         return outroutes
 
-    def get_route(self, valid_paths):
+    def get_route(self, srcif, valid_paths):
         """	Select the best route for a given address	"""
         peer = None
         # Rules go here
@@ -197,16 +214,19 @@ class Router:
             # 4. EGP > IGP > UNK
             valid_paths = self.get_origin_routes(valid_paths)
             #print("Origin")
-            print(valid_paths)
+            #print(valid_paths)
             # 5. Lowest IP Address
             valid_paths = self.get_lowest_ip(valid_paths)
             #print("Lowest")
             #print(valid_paths)
             # Final check: enforce peering relationships
-            #routes = self.filter_relationships(srcif, routes)
-            print(len(valid_paths) == 1)
+            valid_paths = self.filter_relationships(srcif, valid_paths)
+            #print(len(valid_paths) == 1)
             if len(valid_paths) == 1:
                 peer = valid_paths[0]
+            #else:
+                #print("Length of valid_paths")
+                #print(len(valid_paths))
         #return self.sockets[peer] if peer else None
         return peer
 
@@ -243,10 +263,20 @@ class Router:
             packet["src"] = ".".join(src)
             self.forward(srcif, packet)
             return
-       
+        
         #best_location = self.find_priority(valid_path)
-        best_location = self.get_route(valid_path)
-        self.sockets[best_location["forward_to"]].send(json.dumps(packet).encode())
+        best_location = self.get_route(srcif, valid_path)
+        if (best_location):
+            self.sockets[best_location["forward_to"]].send(json.dumps(packet).encode())
+        else:
+            packet["type"] = "no route"
+            packet["dst"] = packet["src"]
+            packet["msg"] = {}
+            src = srcif.split(".")
+            src[-1] = str(int(src[-1]) -1)
+            packet["src"] = ".".join(src)
+            #print(packet)
+            self.sockets[srcif].send(json.dumps(packet).encode())
         return
 
     def find_priority(self, valid_locations):
@@ -359,8 +389,12 @@ class Router:
                 packet["src"] = router
                 packet["dst"] = sock
                 socket = self.sockets[sock]
-                socket.send(json.dumps(packet).encode())
-
+                if (self.relations[srcif] == 'cust'):
+                    socket.send(json.dumps(packet).encode())
+                else:
+                    if (self.relations[sock] == 'cust'):
+                        socket.send(json.dumps(packet).encode())
+        #print(self.forward_table)
         return False
 
     def revoke(self, packet):
@@ -382,7 +416,11 @@ class Router:
                 packet["src"] = router
                 packet["dst"] = sock
                 socket = self.sockets[sock]
-                socket.send(json.dumps(packet).encode())
+                if (self.relations[src] == 'cust'):
+                    socket.send(json.dumps(packet).encode())
+                else:
+                    if (self.relations[sock] == 'cust'):
+                        socket.send(json.dumps(packet).encode())
         
         return False
 
@@ -423,6 +461,9 @@ class Router:
         return
 
     def run(self):
+        #print("------- RELATIONSHIPS -------")
+        #print(self.relations)
+        #print("------- DONE RELATIONSHIPS -------")
         while True:
             socks = select.select(self.sockets.values(), [], [], 0.1)[0]
             for conn in socks:
