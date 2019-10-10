@@ -63,6 +63,7 @@ class Router:
         self.sockets = {}
         self.forward_table = {}
         self.revokes = {}
+        self.forward_table_backup = {}
         for relationship in networks:
             network, relation = relationship.split("-")
             if DEBUG:
@@ -298,68 +299,6 @@ class Router:
             self.sockets[srcif].send(json.dumps(packet).encode())
         return
 
-    def find_priority(self, valid_locations):
-        # TODO longest prefix match -> level 5
-        # highest localpref
-        # SelfOrign = true
-        # shotest ASPath
-        # Best origin IGP>EGP>UNK
-        # Lowest IP
-
-        best_location = valid_locations[0]
-        for entry in valid_locations:
-            if best_location["localpref"] > entry["localpref"]:
-                continue
-            elif best_location["localpref"] == entry["localpref"]:
-                #print("-----------------------")
-                #print("Checking for Self Origin Next")
-                #print(best_location)
-                #print(entry)
-                if best_location["route_selforigin"] and not entry["route_selforigin"]:
-                    continue
-                elif (best_location["route_selforigin"] == entry["route_selforigin"]):
-                    # compare next
-                    if len(best_location["ASPath"]) < len(entry["ASPath"]):
-                        continue
-                    elif len(entry["ASPath"]) == len(best_location["ASPath"]):
-                        # compare next
-                        if self.origin1_priority(best_location["origin"], entry["origin"]) > 0:
-                            continue
-                        elif self.origin1_priority(best_location["origin"], entry["origin"]) == 0:
-                            #compare next
-                            if self.lowest_ip(best_location, entry):
-                                continue
-                            else:
-                                # Not lowest ip
-                                best_location = entry
-                        else:
-                            best_location = entry
-                    else:
-                        # other length is shorter
-                        best_location = entry
-                else:
-                    # take new one
-                    best_location = entry
-            else:
-                # best so far is less than new entry
-                best_location = entry
-
-       # print("####And the best location is####")
-        #print(best_location)
-       # print(" ---------------------------- ")
-        return best_location
-
-    # neg = lower priorty, 0 = same, pos is higher
-    def origin1_priority(self, origin1, origin2):
-        values = {"IGP": 3, "EGP": 2, "UNK": 1}
-        return values[origin1] - values[origin2]
-
-    # Returns if the second ip is lower than the first
-    def lowest_ip(self, ip1, ip2):
-        first = "".join(ip1["forward_to"].split("."))
-        second = "".join(ip2["forward_to"].split("."))
-        return first < second
-
     def bitwise_and(self, ip_address_1, ip_address_2):
         list_of_numbers_1 = ip_address_1.split(".")
         list_of_numbers_2 = ip_address_2.split(".")
@@ -401,7 +340,21 @@ class Router:
         # Forwarding table is of type Destination: array of Route information
         if final_dest_ip not in self.forward_table:
             self.forward_table[final_dest_ip] = []
-        self.forward_table[final_dest_ip] = self.forward_table[final_dest_ip] + [route_info]
+            self.forward_table_backup[final_dest_ip] = []
+
+        ## CHECK for aggregation in key, not network
+        
+        # if len(self.forward_table[final_dest_ip]) == 0:
+        #     self.forward_table[final_dest_ip] = self.forward_table[final_dest_ip] + [route_info]
+        # else:
+        #     for entry in self.forward_table[final_dest_ip]:
+        #         self.debug_helper(self.bitwise_and(packet_msg["network"], packet_msg["netmask"]), "packet")
+        #         self.debug_helper(self.bitwise_and(entry["network"], entry["netmask"]), "entry")
+        #         if self.bitwise_and(packet_msg["network"], packet_msg["netmask"]) ^ self.bitwise_and(entry["network"], entry["netmask"]) == 1:
+        #             print("shit code")
+        #             entry = self.mergeRoutes(entry)
+        # self.forward_table_backup[final_dest_ip] = self.forward_table_backup[final_dest_ip] + [route_info]
+        
         router = packet["dst"]
         for sock in self.sockets:
             if sock != srcif:
@@ -415,6 +368,45 @@ class Router:
                         socket.send(json.dumps(packet).encode())
         #print(self.forward_table)
         return False
+
+    def mergeRoutes(self, entry):
+        split = entry["network"].split(".")
+        split.reverse()
+        changed = False
+        # Change the most right non 0 value to 0
+        for value in split:
+            if not changed and int(value) != 0:
+                changed = True
+                value = "0"
+        split.reverse()
+        network = "".join(split)
+        entry["network"] = network
+        # Remove last 1 from netmask
+        split = entry["netmask"].split(".")
+        split.reverse()
+        changed = False
+        for value in split:
+            if not changed and int(value) != 0:
+                ip = self.convertIpToBinary(value).split("")
+                ip.reverse()
+                for num in ip:
+                    if not changed and int(num) != 0:
+                        num = "0"
+                        changed = True
+                ip.reverse()
+                ip.insert(8, ".")
+                ip.insert(17,".")
+                ip.insert(26,".")
+                ip.split(".")
+                for segment in ip:
+                    segment = int(segment, 2)
+                ip_new = ".".join(ip)
+                entry["netmask"] = ip_new
+                return
+        return
+                
+
+            
 
     def revoke(self, packet):
         """	handle revoke packets	"""
