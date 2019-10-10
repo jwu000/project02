@@ -258,8 +258,19 @@ class Router:
                 packet_dest, entry_netmask) == self.convertIpToBinary(destination))
             # If it is a valid member, it is a valid path
             if in_neighbor_network:
-                valid_path = valid_path + self.forward_table[destination]
+                # Check longest netmask 
+                if valid_path:
+                    current_netmask = int(self.convertIpToBinary(valid_path[0]["final_dest_netmask"]))
+                    new_netmask = int(self.convertIpToBinary(self.forward_table[destination][0]["final_dest_netmask"]))
+                    #self.debug_helper(current_netmask, "current_netmask")
+                    #self.debug_helper(new_netmask, "new_netmask")
 
+                    if new_netmask > current_netmask:
+                        valid_path = self.forward_table[destination]
+
+                else:
+                    #If empty, just take it
+                    valid_path = self.forward_table[destination]
         # # No matches, we don't know this place so send it back
         if (len(valid_path) == 0):
             print("NO VALID PATH WAS CALLED")
