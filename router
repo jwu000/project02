@@ -247,7 +247,7 @@ class Router:
         # Find all the valid places we can forward to
         # Use priority rules to find the one place we should send to
         # In the case that we don't know the location of it, send it back
-
+        print(self.forward_table)
         valid_path = []
         packet_dest = packet["dst"]
 
@@ -396,6 +396,21 @@ class Router:
                         print(new_destination_ip)
                         print(final_new_netmask)
 
+                        print (self.forward_table[first_ip])
+                        for route in self.forward_table[first_ip]:
+                            route["final_dest_netmask"] = str(final_new_netmask)
+                        print(self.forward_table[first_ip])
+                        #self.forward_table[str(new_destination_ip)] = self.forward_table[first_ip]
+                        
+                        self.forward_table[str(new_destination_ip)] = self.forward_table.pop(first_ip)
+                        self.forward_table.pop(second_ip)
+                        print(self.forward_table)
+                        return True
+                        #self.forward_table[new_destination_ip] = self.forward_table[first_ip]
+                        #self.forward_table[new_destination_ip][0]["final_dest_netmask"] = final_new_netmask
+                        #del self.forward_table[first_ip]
+                        #del self.forward_table[second_ip]
+
 
 
                         #split by period
@@ -429,7 +444,11 @@ class Router:
             self.forward_table_backup[final_dest_ip] = []
 
         self.forward_table[final_dest_ip] = self.forward_table[final_dest_ip] + [route_info]
-        self.coalesce()
+
+        continue_coal = True
+        while continue_coal:
+            continue_coal = self.coalesce()
+
         ## CHECK for aggregation in key, not network
         
 
@@ -585,6 +604,7 @@ class Router:
                         self.forward(srcif, msg)
                     elif msg_type == "dump":
                         self.dump(msg)
+                        print(self.forward_table)
                     elif msg_type == "revoke":
                         self.revoke(msg)
                     if not self.handle_packet(srcif, msg):
