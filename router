@@ -403,8 +403,11 @@ class Router:
                         #self.forward_table[str(new_destination_ip)] = self.forward_table[first_ip]
                         
                         self.forward_table[str(new_destination_ip)] = self.forward_table.pop(first_ip)
-                        self.forward_table.pop(second_ip)
+                        if new_destination_ip != second_ip:
+                            self.forward_table.pop(second_ip)
+                        print("==================after coal================")
                         print(self.forward_table)
+                        print("==============================================")
                         return True
                         #self.forward_table[new_destination_ip] = self.forward_table[first_ip]
                         #self.forward_table[new_destination_ip][0]["final_dest_netmask"] = final_new_netmask
