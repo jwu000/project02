@@ -48,6 +48,7 @@ PROV = "prov"
 
 ##########################################################################################
 
+
 class Router:
 
     routes = None
@@ -64,6 +65,7 @@ class Router:
         self.forward_table = {}
         self.revokes = {}
         self.forward_table_backup = {}
+        self.update_packets_history = []
         for relationship in networks:
             network, relation = relationship.split("-")
             if DEBUG:
@@ -247,7 +249,7 @@ class Router:
         # Find all the valid places we can forward to
         # Use priority rules to find the one place we should send to
         # In the case that we don't know the location of it, send it back
-        print(self.forward_table)
+        #print(self.forward_table)
         valid_path = []
         packet_dest = packet["dst"]
 
@@ -366,14 +368,14 @@ class Router:
                             elif first_split[x] != second_split[x]:
                                 section_not_equal = x
 
-                        print("section not equal " + str(section_not_equal))
+                        #print("section not equal " + str(section_not_equal))
                         if break_out:
                             continue
 
                         first_section_binary = '{0:08b}'.format(int(first_split[section_not_equal]))
                         second_section_binary = '{0:08b}'.format(int(second_split[section_not_equal]))
-                        print("first ip binary " + str(first_section_binary))
-                        print("second ip binary" + str(second_section_binary))
+                        #print("first ip binary " + str(first_section_binary))
+                        #print("second ip binary" + str(second_section_binary))
                         index_of_difference = -1
                         for x in range(len(first_section_binary)):
                             if first_section_binary[x] != second_section_binary[x] and index_of_difference > -1:
@@ -381,33 +383,33 @@ class Router:
                             elif first_section_binary[x] != second_section_binary[x]:
                                 index_of_difference = x
 
-                        print("index of difference is " + str(index_of_difference))
+                        #print("index of difference is " + str(index_of_difference))
                         if break_out:
                             continue
 
                         new_netmask = "1" * 8 * section_not_equal + "1" * index_of_difference + "0" * (8- index_of_difference) + "0" * 8 * (3 - section_not_equal)
                         #final_new_netmask = new_netmask[0:8] + "." + new_netmask[8:16] + "." + new_netmask[16:24] + "." + new_netmask[24:32]
                         final_new_netmask = self.convertBinaryToIp(new_netmask)
-                        print("first_ip" + str(first_ip) )
-                        print("second_ip " +str(second_ip))
+                        #print("first_ip" + str(first_ip) )
+                        #print("second_ip " +str(second_ip))
                         new_destination_binary = self.bitwise_and(first_ip, final_new_netmask)
                         new_destination_ip = self.convertBinaryToIp(new_destination_binary)
-                        print("new dest ip binary" + str(new_destination_binary))
-                        print(new_destination_ip)
-                        print(final_new_netmask)
+                        #print("new dest ip binary" + str(new_destination_binary))
+                        #print(new_destination_ip)
+                        #print(final_new_netmask)
 
-                        print (self.forward_table[first_ip])
+                        #print (self.forward_table[first_ip])
                         for route in self.forward_table[first_ip]:
                             route["final_dest_netmask"] = str(final_new_netmask)
-                        print(self.forward_table[first_ip])
+                        #print(self.forward_table[first_ip])
                         #self.forward_table[str(new_destination_ip)] = self.forward_table[first_ip]
                         
                         self.forward_table[str(new_destination_ip)] = self.forward_table.pop(first_ip)
                         if new_destination_ip != second_ip:
                             self.forward_table.pop(second_ip)
-                        print("==================after coal================")
-                        print(self.forward_table)
-                        print("==============================================")
+                        #print("==================after coal================")
+                        #print(self.forward_table)
+                        #print("==============================================")
                         return True
                         #self.forward_table[new_destination_ip] = self.forward_table[first_ip]
                         #self.forward_table[new_destination_ip][0]["final_dest_netmask"] = final_new_netmask
@@ -430,6 +432,7 @@ class Router:
 
     def update(self, srcif, packet):
         """	handle update packets	"""
+        self.update_packets_history.append(packet)
         packet_msg = packet["msg"]
         final_dest_ip = packet_msg["network"]
         route_info = {}
@@ -520,7 +523,7 @@ class Router:
 
             
 
-    def revoke(self, packet):
+    def revoke(self, srcif, packet):
         """	handle revoke packets	"""
         # Array of networks/netmask
         msg = packet["msg"]
@@ -529,7 +532,9 @@ class Router:
 
         for entry in msg:
             network = entry["network"]
-            if len(self.forward_table[network]) == 1:
+            if network not in self.forward_table:
+                self.disaggregate(srcif,network)
+            elif len(self.forward_table[network]) == 1:
                 del self.forward_table[network]
             else:
                 self.forward_table[network] = self.delete_entries_going_to_ip(self.forward_table[network], src)
@@ -546,6 +551,18 @@ class Router:
                         socket.send(json.dumps(packet).encode())
         
         return False
+
+    def disaggregate(self,srcif, network):
+        new_update_history = []
+
+        for update in self.update_packets_history:
+            if update["msg"]["network"] != network:
+                new_update_history.append(update)
+
+        self.update_packets_history = new_update_history
+        self.forward_table = {}
+        for update in self.update_packets_history:
+            self.update(srcif, update)
 
     def delete_entries_going_to_ip(self,routes, ip_to_remove):
         newEntry = []
@@ -609,7 +626,7 @@ class Router:
                         self.dump(msg)
                         print(self.forward_table)
                     elif msg_type == "revoke":
-                        self.revoke(msg)
+                        self.revoke(srcif,msg)
                     if not self.handle_packet(srcif, msg):
                         self.send_error(conn, msg)
                 else:
