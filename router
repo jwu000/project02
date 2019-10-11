@@ -320,10 +320,95 @@ class Router:
             lambda num: '{0:08b}'.format(int(num)), list_of_numbers)
         return ''.join(list_of_binary)
 
+    def convertBinaryToIp(self, binary_string):
+        ip_nums = []
+        ip_nums.append(str(int(binary_string[0:8],2)))
+        ip_nums.append(str(int(binary_string[8:16],2)))
+        ip_nums.append(str(int(binary_string[16:24],2)))
+        ip_nums.append(str(int(binary_string[24:32],2)))
+        return ".".join(ip_nums)
+
+    # return true or false. true indicating something coalesced, false if nothing coalecsed so no need to check
     def coalesce(self):
         """	coalesce any routes that are right next to each other	"""
         # TODO (this is the most difficult task, save until last)
+        #dict key is hop port, value is destinations that will be forward to that hop
+        hop_dict = {}
+        for destination in self.forward_table:
+            route_info ={}
+            route_info["destination"] = destination
+            route_info["netmask"] = self.forward_table[destination][0]["final_dest_netmask"]
+            route_info["localpref"] = self.forward_table[destination][0]["localpref"]
+            route_info["route_selforigin"] = self.forward_table[destination][0]["route_selforigin"]
+            route_info["ASPath"] = self.forward_table[destination][0]["ASPath"]
+            route_info["origin"] = self.forward_table[destination][0]["origin"]
+            if self.forward_table[destination][0]["forward_to"] not in hop_dict:
+                hop_dict[self.forward_table[destination][0]["forward_to"] ] = [route_info]
+            else:
+                hop_dict[self.forward_table[destination][0]["forward_to"] ].append(route_info)
+
+        for hop_ip in hop_dict:
+            list_dest = hop_dict[hop_ip]
+            for index in range(len(list_dest)-1):
+                checking_dest = list_dest[index]
+                for second_dest in list_dest[index+1:]:
+                    if (checking_dest["netmask"] == second_dest["netmask"]) and (checking_dest["localpref"] == second_dest["localpref"]) and (checking_dest["route_selforigin"] == second_dest["route_selforigin"]) and (checking_dest["ASPath"] == second_dest["ASPath"]) and (checking_dest["origin"] == second_dest["origin"]):
+                        first_ip = checking_dest["destination"]
+                        second_ip = second_dest["destination"]
+                        
+                        section_not_equal = -1
+                        break_out = False
+                        first_split = first_ip.split(".")
+                        second_split = second_ip.split(".")
+                        for x in range(4):
+                            if first_split[x] != second_split[x] and section_not_equal > -1:
+                                break_out = True
+                            elif first_split[x] != second_split[x]:
+                                section_not_equal = x
+
+                        print("section not equal " + str(section_not_equal))
+                        if break_out:
+                            continue
+
+                        first_section_binary = '{0:08b}'.format(int(first_split[section_not_equal]))
+                        second_section_binary = '{0:08b}'.format(int(second_split[section_not_equal]))
+                        print("first ip binary " + str(first_section_binary))
+                        print("second ip binary" + str(second_section_binary))
+                        index_of_difference = -1
+                        for x in range(len(first_section_binary)):
+                            if first_section_binary[x] != second_section_binary[x] and index_of_difference > -1:
+                                break_out
+                            elif first_section_binary[x] != second_section_binary[x]:
+                                index_of_difference = x
+
+                        print("index of difference is " + str(index_of_difference))
+                        if break_out:
+                            continue
+
+                        new_netmask = "1" * 8 * section_not_equal + "1" * index_of_difference + "0" * (8- index_of_difference) + "0" * 8 * (3 - section_not_equal)
+                        #final_new_netmask = new_netmask[0:8] + "." + new_netmask[8:16] + "." + new_netmask[16:24] + "." + new_netmask[24:32]
+                        final_new_netmask = self.convertBinaryToIp(new_netmask)
+                        print("first_ip" + str(first_ip) )
+                        print("second_ip " +str(second_ip))
+                        new_destination_binary = self.bitwise_and(first_ip, final_new_netmask)
+                        new_destination_ip = self.convertBinaryToIp(new_destination_binary)
+                        print("new dest ip binary" + str(new_destination_binary))
+                        print(new_destination_ip)
+                        print(final_new_netmask)
+
+
+
+                        #split by period
+                        #see if only one section not equal and need be same in both
+                        # convert to binary that section
+                        # find nad check if only one bit differ
+                        # make new netmask
+
+
+
         return False
+
+
 
     def update(self, srcif, packet):
         """	handle update packets	"""
@@ -337,13 +422,18 @@ class Router:
         route_info["ASPath"] = packet_msg["ASPath"]
         route_info["origin"] = packet_msg["origin"]
 
+
         # Forwarding table is of type Destination: array of Route information
         if final_dest_ip not in self.forward_table:
             self.forward_table[final_dest_ip] = []
             self.forward_table_backup[final_dest_ip] = []
 
+        self.forward_table[final_dest_ip] = self.forward_table[final_dest_ip] + [route_info]
+        self.coalesce()
         ## CHECK for aggregation in key, not network
         
+
+
         # if len(self.forward_table[final_dest_ip]) == 0:
         #     self.forward_table[final_dest_ip] = self.forward_table[final_dest_ip] + [route_info]
         # else:
