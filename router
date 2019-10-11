@@ -75,7 +75,7 @@ class Router:
             self.relations[network] = relation
         return
 
-    def debug_helper(self, message, message_title):
+    def debug_helper(self, message, message_title, level = 0):
         print("---- START " + message_title + "----")
         print(message)
         print("---- FINISH " + message_title + " ----")
@@ -274,7 +274,7 @@ class Router:
                     valid_path = self.forward_table[destination]
         # # No matches, we don't know this place so send it back
         if (len(valid_path) == 0):
-            print("NO VALID PATH WAS CALLED")
+            #print("NO VALID PATH WAS CALLED")
             packet["type"] = "no route"
             packet["dst"] = packet["src"]
             packet["msg"] = {}
@@ -337,23 +337,19 @@ class Router:
         route_info["ASPath"] = packet_msg["ASPath"]
         route_info["origin"] = packet_msg["origin"]
 
-        # Forwarding table is of type Destination: array of Route information
-        if final_dest_ip not in self.forward_table:
-            self.forward_table[final_dest_ip] = []
-            self.forward_table_backup[final_dest_ip] = []
 
-        ## CHECK for aggregation in key, not network
-        
-        # if len(self.forward_table[final_dest_ip]) == 0:
-        #     self.forward_table[final_dest_ip] = self.forward_table[final_dest_ip] + [route_info]
-        # else:
-        #     for entry in self.forward_table[final_dest_ip]:
-        #         self.debug_helper(self.bitwise_and(packet_msg["network"], packet_msg["netmask"]), "packet")
-        #         self.debug_helper(self.bitwise_and(entry["network"], entry["netmask"]), "entry")
-        #         if self.bitwise_and(packet_msg["network"], packet_msg["netmask"]) ^ self.bitwise_and(entry["network"], entry["netmask"]) == 1:
-        #             print("shit code")
-        #             entry = self.mergeRoutes(entry)
-        # self.forward_table_backup[final_dest_ip] = self.forward_table_backup[final_dest_ip] + [route_info]
+        if self.find_potential_aggregation(final_dest_ip, packet_msg["netmask"]):
+            self.forward_table[final_dest_ip] = []
+        else:
+
+            # Forwarding table is of type Destination: array of Route information
+            if final_dest_ip not in self.forward_table:
+                self.forward_table[final_dest_ip] = []
+                self.forward_table_backup[final_dest_ip] = []
+
+
+            self.forward_table[final_dest_ip] = self.forward_table[final_dest_ip] + [route_info]
+            self.forward_table_backup[final_dest_ip] = self.forward_table_backup[final_dest_ip] + [route_info]
         
         router = packet["dst"]
         for sock in self.sockets:
@@ -369,44 +365,79 @@ class Router:
         #print(self.forward_table)
         return False
 
-    def mergeRoutes(self, entry):
-        split = entry["network"].split(".")
-        split.reverse()
-        changed = False
-        # Change the most right non 0 value to 0
-        for value in split:
-            if not changed and int(value) != 0:
-                changed = True
-                value = "0"
-        split.reverse()
-        network = "".join(split)
-        entry["network"] = network
-        # Remove last 1 from netmask
-        split = entry["netmask"].split(".")
-        split.reverse()
-        changed = False
-        for value in split:
-            if not changed and int(value) != 0:
-                ip = self.convertIpToBinary(value).split("")
-                ip.reverse()
-                for num in ip:
-                    if not changed and int(num) != 0:
-                        num = "0"
-                        changed = True
-                ip.reverse()
-                ip.insert(8, ".")
-                ip.insert(17,".")
-                ip.insert(26,".")
-                ip.split(".")
-                for segment in ip:
-                    segment = int(segment, 2)
-                ip_new = ".".join(ip)
-                entry["netmask"] = ip_new
-                return
-        return
-                
+    def find_most_right_non_0_ip(self, ip):
+        split_ip = ip.split(".")
+        found = False
+        location = 1
+        # Find location of last value
+        for value in reversed(split_ip):
+            if not found and int(value) != 0:
+                found = True
+                break
+            else:
+                location = location + 1
+        return location * -1
+    
+    def find_most_right_non_0_binary(self, number):
+        binary_split = list(number)
+        found = False
+        location = 1
+        for value in reversed(binary_split):
+            if not found and int(value) != 0:
+                found = True
+                break
+            else:
+                location = location + 1
+        return location * -1
 
-            
+    def find_potential_aggregation(self, final_dest_ip, netmask):
+        in_network = self.bitwise_and(final_dest_ip, netmask)
+        in_network = list(in_network)
+        in_network.insert(8, ".")
+        in_network.insert(17, ".")
+        in_network.insert(26, ".")
+        in_network = "".join(in_network)
+
+        in_network_split = in_network.split(".")
+
+        ip_location = self.find_most_right_non_0_ip(in_network)
+        binary_location = self.find_most_right_non_0_binary(in_network_split[ip_location])
+        for key in self.forward_table:
+            key_in_network = self.bitwise_and(key, self.forward_table[key][0]["final_dest_netmask"])
+            key_in_network = list(key_in_network)
+            key_in_network.insert(8, ".")
+            key_in_network.insert(17, ".")
+            key_in_network.insert(26, ".")
+            key_in_network = "".join(key_in_network)
+            key_in_network_split = key_in_network.split(".")
+
+            same = 0
+
+            key_ip_location = self.find_most_right_non_0_ip(key_in_network)
+            key_binary_location = self.find_most_right_non_0_binary(key_in_network_split[key_ip_location])
+            # print(key)
+            # print(key_binary_location)
+
+            final_dest_ip_split = final_dest_ip.split(".")
+            key_split = key.split(".")
+            for i in range(len(final_dest_ip_split)):
+                if final_dest_ip_split[i] == key_split[i]:
+                    same = same + 1
+                else:
+                    break
+            #self.debug_helper(same,"same",6)
+            #self.debug_helper(key_ip_location,"loc",6)
+            #self.debug_helper(key_ip_location * -1 + same, "sum", 6)
+            if (key_ip_location * -1) + same == 4:
+                # self.debug_helper(binary_location, "base", 6)
+                # self.debug_helper(key_binary_location, "key", 6)
+                #self.debug_helper(in_network, "base", 6)
+                #self.debug_helper(key_in_network, "key", 6)
+                # print(".............")
+                if (binary_location + 1 == key_binary_location or binary_location - 1 == key_binary_location):
+                    return True
+
+        return False
 
     def revoke(self, packet):
         """	handle revoke packets	"""
