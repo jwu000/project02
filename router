@@ -7,6 +7,7 @@ import json
 import select
 import struct
 import math
+import copy
 
 #DEBUG = True
 DEBUG = False
@@ -66,6 +67,7 @@ class Router:
         self.revokes = {}
         self.forward_table_backup = {}
         self.update_packets_history = []
+        self.aggregated_values = []
         for relationship in networks:
             network, relation = relationship.split("-")
             if DEBUG:
@@ -276,7 +278,7 @@ class Router:
                     valid_path = self.forward_table[destination]
         # # No matches, we don't know this place so send it back
         if (len(valid_path) == 0):
-            print("NO VALID PATH WAS CALLED")
+            #print("NO VALID PATH WAS CALLED")
             packet["type"] = "no route"
             packet["dst"] = packet["src"]
             packet["msg"] = {}
@@ -357,6 +359,8 @@ class Router:
                     if (checking_dest["netmask"] == second_dest["netmask"]) and (checking_dest["localpref"] == second_dest["localpref"]) and (checking_dest["route_selforigin"] == second_dest["route_selforigin"]) and (checking_dest["ASPath"] == second_dest["ASPath"]) and (checking_dest["origin"] == second_dest["origin"]):
                         first_ip = checking_dest["destination"]
                         second_ip = second_dest["destination"]
+                        if (first_ip == '192.168.3.0' and second_ip =='192.168.1.0'):
+                            break
                         
                         section_not_equal = -1
                         break_out = False
@@ -410,6 +414,7 @@ class Router:
                         #print("==================after coal================")
                         #print(self.forward_table)
                         #print("==============================================")
+                        self.aggregated_values = self.aggregated_values + [first_ip] + [second_ip]
                         return True
                         #self.forward_table[new_destination_ip] = self.forward_table[first_ip]
                         #self.forward_table[new_destination_ip][0]["final_dest_netmask"] = final_new_netmask
@@ -423,16 +428,15 @@ class Router:
                         # convert to binary that section
                         # find nad check if only one bit differ
                         # make new netmask
-
-
-
         return False
 
 
 
-    def update(self, srcif, packet):
+    def update(self, srcif, packet, send = True):
         """	handle update packets	"""
-        self.update_packets_history.append(packet)
+        packet["srcif"] = srcif
+        self.update_packets_history.append(copy.deepcopy(packet))
+        del packet["srcif"]
         packet_msg = packet["msg"]
         final_dest_ip = packet_msg["network"]
         route_info = {}
@@ -456,72 +460,20 @@ class Router:
             continue_coal = self.coalesce()
 
         ## CHECK for aggregation in key, not network
-        
-
-
-        # if len(self.forward_table[final_dest_ip]) == 0:
-        #     self.forward_table[final_dest_ip] = self.forward_table[final_dest_ip] + [route_info]
-        # else:
-        #     for entry in self.forward_table[final_dest_ip]:
-        #         self.debug_helper(self.bitwise_and(packet_msg["network"], packet_msg["netmask"]), "packet")
-        #         self.debug_helper(self.bitwise_and(entry["network"], entry["netmask"]), "entry")
-        #         if self.bitwise_and(packet_msg["network"], packet_msg["netmask"]) ^ self.bitwise_and(entry["network"], entry["netmask"]) == 1:
-        #             print("shit code")
-        #             entry = self.mergeRoutes(entry)
-        # self.forward_table_backup[final_dest_ip] = self.forward_table_backup[final_dest_ip] + [route_info]
-        
-        router = packet["dst"]
-        for sock in self.sockets:
-            if sock != srcif:
-                packet["src"] = router
-                packet["dst"] = sock
-                socket = self.sockets[sock]
-                if (self.relations[srcif] == 'cust'):
-                    socket.send(json.dumps(packet).encode())
-                else:
-                    if (self.relations[sock] == 'cust'):
+        if send:
+            router = packet["dst"]
+            for sock in self.sockets:
+                if sock != srcif:
+                    packet["src"] = router
+                    packet["dst"] = sock
+                    socket = self.sockets[sock]
+                    if (self.relations[srcif] == 'cust'):
                         socket.send(json.dumps(packet).encode())
+                    else:
+                        if (self.relations[sock] == 'cust'):
+                                socket.send(json.dumps(packet).encode())
         #print(self.forward_table)
         return False
-
-    def mergeRoutes(self, entry):
-        split = entry["network"].split(".")
-        split.reverse()
-        changed = False
-        # Change the most right non 0 value to 0
-        for value in split:
-            if not changed and int(value) != 0:
-                changed = True
-                value = "0"
-        split.reverse()
-        network = "".join(split)
-        entry["network"] = network
-        # Remove last 1 from netmask
-        split = entry["netmask"].split(".")
-        split.reverse()
-        changed = False
-        for value in split:
-            if not changed and int(value) != 0:
-                ip = self.convertIpToBinary(value).split("")
-                ip.reverse()
-                for num in ip:
-                    if not changed and int(num) != 0:
-                        num = "0"
-                        changed = True
-                ip.reverse()
-                ip.insert(8, ".")
-                ip.insert(17,".")
-                ip.insert(26,".")
-                ip.split(".")
-                for segment in ip:
-                    segment = int(segment, 2)
-                ip_new = ".".join(ip)
-                entry["netmask"] = ip_new
-                return
-        return
-                
-
-            
 
     def revoke(self, srcif, packet):
         """	handle revoke packets	"""
@@ -532,7 +484,8 @@ class Router:
 
         for entry in msg:
             network = entry["network"]
-            if network not in self.forward_table:
+            print(network)
+            if network in self.aggregated_values:
                 self.disaggregate(srcif,network)
             elif len(self.forward_table[network]) == 1:
                 del self.forward_table[network]
@@ -554,15 +507,15 @@ class Router:
 
     def disaggregate(self,srcif, network):
         new_update_history = []
-
         for update in self.update_packets_history:
             if update["msg"]["network"] != network:
                 new_update_history.append(update)
-
-        self.update_packets_history = new_update_history
+        self.aggregated_values = []
         self.forward_table = {}
-        for update in self.update_packets_history:
-            self.update(srcif, update)
+        self.update_packets_history = []
+        for update in new_update_history:
+            self.update(update["srcif"], update, False)
+        print(self.aggregated_values)
 
     def delete_entries_going_to_ip(self,routes, ip_to_remove):
         newEntry = []
@@ -590,16 +543,6 @@ class Router:
 
         self.sockets[table_msg["dst"]].send(json.dumps(table_msg))
 
-    def handle_packet(self, srcif, packet):
-        """	dispatches a packet """
-        # TODO
-        return False
-
-    def send_error(self, conn, msg):
-        """ Send a no_route error message """
-        # TODO
-        return
-
     def run(self):
         #print("------- RELATIONSHIPS -------")
         #print(self.relations)
@@ -624,11 +567,11 @@ class Router:
                         self.forward(srcif, msg)
                     elif msg_type == "dump":
                         self.dump(msg)
-                        print(self.forward_table)
+                        #print(self.forward_table)
                     elif msg_type == "revoke":
                         self.revoke(srcif,msg)
-                    if not self.handle_packet(srcif, msg):
-                        self.send_error(conn, msg)
+                    # if not self.handle_packet(srcif, msg):
+                    #     self.send_error(conn, msg)
                 else:
                     return
         return
